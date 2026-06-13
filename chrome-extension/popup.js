@@ -1,4 +1,4 @@
-import { config } from './config.js';
+import { config, loadConfig } from './config.js';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const screenshotBtn   = document.getElementById('screenshot-btn');
@@ -97,6 +97,7 @@ function showError(msg) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
+  await loadConfig();
   API = resolveAPI();
   if (!API) {
     setStatus('error', 'unavailable');

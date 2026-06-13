@@ -1,0 +1,4 @@
+.DS_Store
+.env
+chrome-extension/.env
+node_modules/

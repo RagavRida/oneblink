@@ -6,10 +6,10 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* Core palette — ElevenLabs brand */
+  /* Core palette */
   --black:   #000000;
   --white:   #ffffff;
-  --yellow:  #f5c842;        /* warm amber, close to ElevenLabs yellow */
+  --yellow:  #f5c842;
   --yellow-dim: rgba(245,200,66,0.12);
   --yellow-glow: rgba(245,200,66,0.25);
 
@@ -41,8 +41,8 @@
 }
 
 html, body {
-  width: 340px;
-  height: 440px;
+  width: 360px;
+  height: 520px;
   overflow: hidden;
 }
 
@@ -80,7 +80,6 @@ header {
   border-bottom: 1px solid var(--border);
 }
 
-/* Logo: single vertical bar (Oneblink = "1") */
 .logo {
   display: flex;
   align-items: center;
@@ -99,7 +98,6 @@ header {
   overflow: visible;
 }
 
-/* Inner solid circle */
 .logo-circle {
   display: block;
   width: 10px;
@@ -110,7 +108,6 @@ header {
   z-index: 1;
 }
 
-/* Two staggered pulse rings */
 .logo-mark::before,
 .logo-mark::after {
   content: '';
@@ -176,6 +173,7 @@ header {
   align-items: center;
   justify-content: center;
   padding: 16px;
+  overflow: hidden;
 }
 
 /* ── Idle view ── */
@@ -200,6 +198,13 @@ header {
 .tagline em {
   font-style: normal;
   color: var(--yellow);
+}
+.tagline-sub {
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  color: var(--text-3) !important;
+  margin-top: 6px;
+  letter-spacing: 0 !important;
 }
 
 /* ── Action cards ── */
@@ -240,7 +245,6 @@ header {
   cursor: not-allowed;
 }
 
-/* Yellow left accent line */
 .action-card::before {
   content: '';
   position: absolute;
@@ -253,7 +257,6 @@ header {
 }
 .action-card:hover:not(:disabled)::before { opacity: 1; }
 
-/* Icon wrap */
 .card-icon-wrap {
   width: 40px;
   height: 40px;
@@ -277,7 +280,6 @@ header {
   color: var(--yellow);
 }
 
-/* Text */
 .card-text {
   flex: 1;
   display: flex;
@@ -295,7 +297,6 @@ header {
   color: var(--text-3);
 }
 
-/* Arrow */
 .card-arrow {
   font-size: 14px;
   color: var(--text-3);
@@ -376,6 +377,115 @@ header {
   letter-spacing: 0.01em;
 }
 
+/* ── Response view ── */
+#response-view {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: fadeUp 0.3s ease;
+  max-height: 100%;
+}
+
+.response-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.response-lang-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: var(--yellow-dim);
+  border: 1px solid var(--yellow-glow);
+  border-radius: 100px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--yellow);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Speaking bars animation */
+.speaking-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+}
+.speaking-bars span {
+  display: block;
+  width: 3px;
+  background: var(--yellow);
+  border-radius: 2px;
+  animation: speaking-bar 0.8s ease-in-out infinite;
+}
+.speaking-bars span:nth-child(1) { height: 4px;  animation-delay: 0.0s; }
+.speaking-bars span:nth-child(2) { height: 8px;  animation-delay: 0.1s; }
+.speaking-bars span:nth-child(3) { height: 14px; animation-delay: 0.2s; }
+.speaking-bars span:nth-child(4) { height: 8px;  animation-delay: 0.3s; }
+.speaking-bars span:nth-child(5) { height: 4px;  animation-delay: 0.4s; }
+
+@keyframes speaking-bar {
+  0%, 100% { transform: scaleY(0.4); opacity: 0.5; }
+  50%      { transform: scaleY(1.0); opacity: 1; }
+}
+
+.response-body {
+  flex: 1;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-2);
+  padding: 12px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  max-height: 280px;
+  min-height: 60px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface3) transparent;
+}
+.response-body::-webkit-scrollbar {
+  width: 4px;
+}
+.response-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.response-body::-webkit-scrollbar-thumb {
+  background: var(--surface3);
+  border-radius: 4px;
+}
+
+.response-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.response-back-btn:hover {
+  background: var(--surface3);
+  color: var(--white);
+  border-color: rgba(255,255,255,0.22);
+}
+.response-back-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* ── Error toast ── */
 #error-toast {
   position: relative;
@@ -416,7 +526,6 @@ header {
   gap: 12px;
 }
 
-/* Pulsing circle for unavailable state */
 .unsupported-mark {
   display: flex;
   align-items: center;

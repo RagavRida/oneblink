@@ -1,4 +1,4 @@
-import { config, loadConfig } from './config.js';
+import { config, loadConfig, LANGUAGES } from './config.js';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const screenshotBtn   = document.getElementById('screenshot-btn');
@@ -13,19 +13,41 @@ const processingView  = document.getElementById('processing-view');
 const processingLabel = document.getElementById('processing-label');
 const errorBanner     = document.getElementById('error-toast');
 const errorText       = document.getElementById('error-text');
+const responseView    = document.getElementById('response-view');
+const responseText    = document.getElementById('response-text');
+const responseLang    = document.getElementById('response-lang');
+const responseBack    = document.getElementById('response-back');
+const speakingBars    = document.getElementById('speaking-bars');
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let session    = null;
-let API        = null;
-let isBusy     = false;   // true while any pipeline is running
-let isRecording = false;
+let session       = null;
+let API           = null;
+let isBusy        = false;
+let isRecording   = false;
+let userLanguage  = 'en-IN';   // auto-detected from voice, persisted
+let currentAudio  = null;      // track playing audio for stop
 
 // ── System prompt for Gemini Nano ─────────────────────────────────────────────
 const SYSTEM_PROMPT =
   'You are an accessibility assistant helping a blind or visually impaired user understand their screen. ' +
   'Describe what you see clearly and concisely in 2-3 sentences. ' +
   'Focus on the most important content: text, actions available, and context. ' +
-  'Never add greetings or sign-offs.';
+  'Always respond in English. Never add greetings or sign-offs.';
+
+// ── Load persisted language ───────────────────────────────────────────────────
+async function loadUserLanguage() {
+  try {
+    const stored = await chrome.storage.local.get('userLanguage');
+    if (stored.userLanguage && LANGUAGES[stored.userLanguage]) {
+      userLanguage = stored.userLanguage;
+    }
+  } catch {}
+}
+
+async function saveUserLanguage(lang) {
+  userLanguage = lang;
+  try { await chrome.storage.local.set({ userLanguage: lang }); } catch {}
+}
 
 // ── API resolution ────────────────────────────────────────────────────────────
 function resolveAPI() {
@@ -77,16 +99,54 @@ function setStatus(state, text) {
 
 function showProcessing(label) {
   idleView.style.display = 'none';
+  responseView.style.display = 'none';
   processingView.style.display = 'flex';
   processingLabel.textContent = label;
   errorBanner.style.display = 'none';
+  speakingBars.style.display = 'none';
 }
 
 function showIdle() {
   processingView.style.display = 'none';
+  responseView.style.display = 'none';
   idleView.style.display = 'flex';
+  speakingBars.style.display = 'none';
   screenshotBtn.disabled = false;
   micBtn.disabled = false;
+}
+
+function showResponse(text, langCode) {
+  processingView.style.display = 'none';
+  idleView.style.display = 'none';
+  responseView.style.display = 'flex';
+  responseText.textContent = '';
+  const langName = LANGUAGES[langCode] || langCode;
+  responseLang.textContent = `${langName}`;
+  // Typewriter effect
+  typewriterEffect(responseText, text);
+}
+
+function typewriterEffect(el, text, speed = 12) {
+  let i = 0;
+  el.textContent = '';
+  function type() {
+    if (i < text.length) {
+      el.textContent += text[i];
+      i++;
+      // Auto-scroll to bottom
+      el.scrollTop = el.scrollHeight;
+      setTimeout(type, speed);
+    }
+  }
+  type();
+}
+
+function showSpeaking() {
+  speakingBars.style.display = 'flex';
+}
+
+function hideSpeaking() {
+  speakingBars.style.display = 'none';
 }
 
 function showError(msg) {
@@ -98,6 +158,7 @@ function showError(msg) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
   await loadConfig();
+  await loadUserLanguage();
   API = resolveAPI();
   if (!API) {
     setStatus('error', 'unavailable');
@@ -121,7 +182,7 @@ async function init() {
     screenshotBtn.disabled = false;
     micBtn.disabled = false;
   } catch (err) {
-    console.error('[Screen Reader]', err);
+    console.error('[Oneblink]', err);
     setStatus('error', 'error');
     showError(`Init error: ${err.message}`);
   }
@@ -130,7 +191,6 @@ async function init() {
 // ── Capture screenshot → returns Blob ────────────────────────────────────────
 function captureTab() {
   return new Promise((resolve, reject) => {
-    // Small delay so the popup doesn't appear in the capture
     setTimeout(() => {
       chrome.tabs.captureVisibleTab(null, { format: 'png', quality: 95 }, (dataUrl) => {
         if (chrome.runtime.lastError) {
@@ -170,9 +230,38 @@ async function askGeminiNano(imageBlob, question) {
   return fullText.trim();
 }
 
-// ── Send text to Sarvam TTS → play audio ─────────────────────────────────────
-async function speakText(text) {
+// ── Sarvam: Translate text ────────────────────────────────────────────────────
+async function translateText(text, sourceLang, targetLang) {
+  if (sourceLang === targetLang) return text;
+
+  const response = await fetch(`${config.SARVAM_BASE_URL}/translate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'API-Subscription-Key': config.SARVAM_API_KEY
+    },
+    body: JSON.stringify({
+      input: text,
+      source_language_code: sourceLang,
+      target_language_code: targetLang,
+      model: config.SARVAM_TRANSLATE_MODEL || 'mayura:v1',
+      numerals_format: 'international'
+    })
+  });
+
+  if (!response.ok) {
+    console.warn(`Translation failed (${response.status}), using original text`);
+    return text;
+  }
+
+  const data = await response.json();
+  return data.translated_text || data.translatedText || data.output || text;
+}
+
+// ── Sarvam: Text-to-Speech ────────────────────────────────────────────────────
+async function speakText(text, langCode) {
   if (!text) return;
+  const targetLang = langCode || userLanguage || 'en-IN';
 
   const response = await fetch(`${config.SARVAM_BASE_URL}/text-to-speech`, {
     method: 'POST',
@@ -182,7 +271,7 @@ async function speakText(text) {
     },
     body: JSON.stringify({
       inputs: [text],
-      target_language_code: 'en-IN',
+      target_language_code: targetLang,
       speaker: config.SARVAM_TTS_SPEAKER || 'meera',
       model: config.SARVAM_TTS_MODEL || 'bulbul:v3',
       enable_preprocessing: true,
@@ -202,6 +291,7 @@ async function speakText(text) {
   if (contentType.includes("application/json")) {
     const data = await response.json();
     const base64Str = data.audio_base64;
+    if (!base64Str) throw new Error('No audio in TTS response');
     const binary = atob(base64Str);
     const len = binary.length;
     const bytes = new Uint8Array(len);
@@ -217,20 +307,31 @@ async function speakText(text) {
 
   return new Promise((resolve, reject) => {
     const audio = new Audio(blobUrl);
-    audio.addEventListener('ended',  () => { URL.revokeObjectURL(blobUrl); resolve(); });
-    audio.addEventListener('error',  (e) => { URL.revokeObjectURL(blobUrl); reject(e); });
+    currentAudio = audio;
+    showSpeaking();
+    audio.addEventListener('ended',  () => {
+      URL.revokeObjectURL(blobUrl);
+      currentAudio = null;
+      hideSpeaking();
+      resolve();
+    });
+    audio.addEventListener('error',  (e) => {
+      URL.revokeObjectURL(blobUrl);
+      currentAudio = null;
+      hideSpeaking();
+      reject(e);
+    });
     audio.play().catch(reject);
   });
 }
 
-// ── Send audio to Sarvam for STT only → returns transcript ───────────────────
-async function transcribeAudio(audioBlob, mimeType) {
+// ── Sarvam: Speech-to-Text-Translate (auto-detects language → English) ───────
+async function transcribeAndTranslate(audioBlob) {
   const formData = new FormData();
   formData.append('file', audioBlob, 'audio.webm');
-  formData.append('model', config.SARVAM_STT_MODEL || 'saaras:v3');
-  formData.append('language_code', 'en-IN');
+  formData.append('model', 'saaras:v2.5');
 
-  const response = await fetch(`${config.SARVAM_BASE_URL}/speech-to-text`, {
+  const response = await fetch(`${config.SARVAM_BASE_URL}/speech-to-text-translate`, {
     method: 'POST',
     headers: {
       'API-Subscription-Key': config.SARVAM_API_KEY
@@ -239,38 +340,50 @@ async function transcribeAudio(audioBlob, mimeType) {
   });
 
   if (!response.ok) {
-    let msg = `Transcription error ${response.status}`;
+    let msg = `STT-Translate error ${response.status}`;
     try { const j = await response.json(); msg += `: ${j.error ?? ''}`; } catch {}
     throw new Error(msg);
   }
 
   const data = await response.json();
-  return (data.transcript ?? '').trim();
+  return {
+    transcript: (data.transcript ?? '').trim(),
+    sourceLanguage: data.source_language_code || 'en-IN'
+  };
 }
 
-// ── FLOW 1: Screenshot → describe → speak ────────────────────────────────────
+// ── FLOW 1: Screenshot → describe → (translate) → speak ─────────────────────
 async function handleScreenshot() {
   if (isBusy) return;
   isBusy = true;
   screenshotBtn.classList.add('capturing');
-  showProcessing('Capturing screen…');
+  errorBanner.style.display = 'none';
 
   try {
     // 1. Capture
     showProcessing('Capturing screen…');
     const imageBlob = await captureTab();
 
-    // 2. Gemini Nano describes it
+    // 2. Gemini Nano describes in English
     showProcessing('Reading screen…');
     setStatus('loading', 'reading…');
     const description = await askGeminiNano(imageBlob, null);
-
     if (!description) throw new Error('No description returned from model.');
 
-    // 3. TTS → play
-    showProcessing('Speaking…');
+    // 3. If user speaks a non-English language, translate
+    let finalText = description;
+    let finalLang = userLanguage;
+
+    if (userLanguage !== 'en-IN') {
+      showProcessing(`Translating to ${LANGUAGES[userLanguage] || userLanguage}…`);
+      setStatus('loading', 'translating…');
+      finalText = await translateText(description, 'en-IN', userLanguage);
+    }
+
+    // 4. Show response + TTS
+    showResponse(finalText, finalLang);
     setStatus('loading', 'speaking…');
-    await speakText(description);
+    await speakText(finalText, finalLang);
 
   } catch (err) {
     console.error('[Screenshot flow]', err);
@@ -278,26 +391,24 @@ async function handleScreenshot() {
   } finally {
     screenshotBtn.classList.remove('capturing');
     isBusy = false;
-    if (processingView.style.display !== 'none') showIdle();
     setStatus('ready', 'ready');
   }
 }
 
-// ── FLOW 2: Mic → STT → Gemini Nano + screenshot → speak ─────────────────────
+// ── FLOW 2: Mic → STT-Translate → Gemini Nano + screenshot → translate → speak
 async function handleMicToggle() {
   if (isBusy && !isRecording) return;
 
   if (isRecording) {
-    // Stop recording
     stopRecording();
   } else {
-    // Start recording
     startRecording();
   }
 }
 
 function startRecording() {
   micBtn.disabled = true;
+  errorBanner.style.display = 'none';
   setStatus('loading', 'starting mic…');
   chrome.runtime.sendMessage({ target: 'background', type: 'start-recording' })
     .catch(err => {
@@ -317,6 +428,7 @@ function stopRecording() {
   chrome.runtime.sendMessage({ target: 'background', type: 'stop-recording' });
   showProcessing('Processing voice…');
 }
+
 // Handle messages from offscreen recorder
 chrome.runtime.onMessage.addListener((message) => {
   if (message.target !== 'popup') return;
@@ -360,33 +472,62 @@ async function processVoiceQuery(base64Audio, mimeType) {
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const audioBlob = new Blob([bytes], { type: mimeType || 'audio/webm' });
 
-    // 2. STT via server
-    const transcript = await transcribeAudio(audioBlob, mimeType);
+    // 2. STT-Translate: auto-detects language, returns English transcript
+    const { transcript, sourceLanguage } = await transcribeAndTranslate(audioBlob);
     if (!transcript) throw new Error('No speech detected in recording.');
 
-    // 3. Capture current screen
+    // 3. Auto-detect: save the user's spoken language for future interactions
+    if (sourceLanguage && LANGUAGES[sourceLanguage]) {
+      await saveUserLanguage(sourceLanguage);
+      console.log(`[Oneblink] Auto-detected language: ${LANGUAGES[sourceLanguage]} (${sourceLanguage})`);
+    }
+
+    // 4. Capture current screen
     showProcessing('Capturing screen…');
     const imageBlob = await captureTab();
 
-    // 4. Gemini Nano: answer question with screenshot context
+    // 5. Gemini Nano: answer question (in English) with screenshot context
     showProcessing('Thinking…');
     setStatus('loading', 'thinking…');
     const answer = await askGeminiNano(imageBlob, transcript);
-
     if (!answer) throw new Error('No answer returned from model.');
 
-    // 5. TTS → play
-    showProcessing('Speaking…');
+    // 6. Translate answer to user's language if not English
+    let finalText = answer;
+    let finalLang = userLanguage;
+
+    if (userLanguage !== 'en-IN') {
+      showProcessing(`Translating to ${LANGUAGES[userLanguage] || userLanguage}…`);
+      setStatus('loading', 'translating…');
+      finalText = await translateText(answer, 'en-IN', userLanguage);
+    }
+
+    // 7. Show response + TTS in user's language
+    showResponse(finalText, finalLang);
     setStatus('loading', 'speaking…');
-    await speakText(answer);
+    await speakText(finalText, finalLang);
 
   } catch (err) {
     console.error('[Voice query flow]', err);
     showError(err.message);
   } finally {
     isBusy = false;
-    if (processingView.style.display !== 'none') showIdle();
     setStatus('ready', 'ready');
+  }
+}
+
+// ── Response back button ─────────────────────────────────────────────────────
+responseBack.addEventListener('click', () => {
+  stopAudio();
+  showIdle();
+});
+
+function stopAudio() {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.src = '';
+    currentAudio = null;
+    hideSpeaking();
   }
 }
 

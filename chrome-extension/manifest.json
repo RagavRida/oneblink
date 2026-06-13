@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Oneblink",
-  "version": "2.0.0",
-  "description": "Screen reader for blind and visually impaired users. Describes your screen and answers questions using on-device AI.",
-  "permissions": ["languageModel", "activeTab", "tabs", "offscreen"],
-  "host_permissions": ["http://localhost:3030/*", "https://api.sarvam.ai/*"],
+  "version": "2.1.0",
+  "description": "AI screen reader for blind and visually impaired users. Describes your screen in 10+ Indian languages using on-device AI and Sarvam AI.",
+  "permissions": ["languageModel", "activeTab", "tabs", "offscreen", "storage"],
+  "host_permissions": ["https://api.sarvam.ai/*"],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Chrome AI Chat",
+    "default_title": "Oneblink — Screen Reader",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -22,5 +22,17 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+O" },
+      "description": "Open Oneblink"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [".env"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

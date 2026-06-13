@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Oneblink",
+  "version": "2.0.0",
+  "description": "Screen reader for blind and visually impaired users. Describes your screen and answers questions using on-device AI.",
+  "permissions": ["languageModel", "activeTab", "tabs", "offscreen"],
+  "host_permissions": ["http://localhost:3030/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Chrome AI Chat",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

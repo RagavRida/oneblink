@@ -11,9 +11,9 @@
  *   stopSpeaking();
  */
 
-'use strict';
+import { config } from './config.js';
 
-const TTS_SERVER = 'http://localhost:3030';
+'use strict';
 
 // Single shared Audio element so we can stop/replace playback easily
 let currentAudio = null;
@@ -41,9 +41,9 @@ export function stopSpeaking() {
  *
  * @param {string}  text          - The text to synthesize.
  * @param {object}  [options]
- * @param {string}  [options.voiceId]  - Override the server's default voice.
- * @param {string}  [options.modelId]  - Override the server's default model.
- * @param {boolean} [options.stream]   - Use /speak-stream for lower latency (default: true).
+ * @param {string}  [options.voiceId]  - Override the default voice.
+ * @param {string}  [options.modelId]  - Override the default model.
+ * @param {boolean} [options.stream]   - Unused legacy parameter.
  * @returns {Promise<void>}  Resolves when playback finishes (or rejects on error).
  */
 export async function speak(text, { voiceId, modelId, stream = true } = {}) {
@@ -52,21 +52,30 @@ export async function speak(text, { voiceId, modelId, stream = true } = {}) {
   // Stop any previous playback
   stopSpeaking();
 
-  const endpoint = stream ? `${TTS_SERVER}/speak-stream` : `${TTS_SERVER}/speak`;
+  const endpoint = `${config.SARVAM_BASE_URL}/text-to-speech`;
 
-  const body = { text };
-  if (voiceId) body.voiceId = voiceId;
-  if (modelId) body.modelId = modelId;
+  const body = {
+    inputs: [text],
+    target_language_code: 'en-IN',
+    speaker: voiceId || config.SARVAM_TTS_SPEAKER || 'meera',
+    model: modelId || config.SARVAM_TTS_MODEL || 'bulbul:v3',
+    enable_preprocessing: true,
+    pace: 1.0,
+    temperature: 0.6
+  };
 
   let response;
   try {
     response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'API-Subscription-Key': config.SARVAM_API_KEY
+      },
       body: JSON.stringify(body),
     });
   } catch (err) {
-    throw new Error(`TTS server unreachable at ${TTS_SERVER}. Is it running? (${err.message})`);
+    throw new Error(`TTS server unreachable at ${endpoint}. (${err.message})`);
   }
 
   if (!response.ok) {
@@ -79,8 +88,22 @@ export async function speak(text, { voiceId, modelId, stream = true } = {}) {
   }
 
   // Create a blob URL from the audio response and play it
-  const blob    = await response.blob();
-  const blobUrl = URL.createObjectURL(blob);
+  const contentType = response.headers.get("content-type") || "";
+  let audioBlob;
+  if (contentType.includes("application/json")) {
+    const data = await response.json();
+    const base64Str = data.audio_base64;
+    const binary = atob(base64Str);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    audioBlob = new Blob([bytes], { type: "audio/wav" });
+  } else {
+    audioBlob = await response.blob();
+  }
+  const blobUrl = URL.createObjectURL(audioBlob);
 
   return new Promise((resolve, reject) => {
     const audio = new Audio(blobUrl);

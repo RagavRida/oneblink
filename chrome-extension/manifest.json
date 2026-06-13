@@ -4,7 +4,7 @@
   "version": "2.0.0",
   "description": "Screen reader for blind and visually impaired users. Describes your screen and answers questions using on-device AI.",
   "permissions": ["languageModel", "activeTab", "tabs", "offscreen"],
-  "host_permissions": ["http://localhost:3030/*"],
+  "host_permissions": ["http://localhost:3030/*", "https://api.sarvam.ai/*"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Chrome AI Chat",

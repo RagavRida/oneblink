@@ -1,10 +1,4 @@
-// popup.js — Screen Reader AI Extension
-// Two modes:
-//   1. Screenshot → Gemini Nano describes screen → ElevenLabs speaks it
-//   2. Mic → STT (server) → Gemini Nano answers with screenshot context → ElevenLabs speaks it
-'use strict';
-
-const SERVER = 'http://localhost:3030';
+import { config } from './config.js';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const screenshotBtn   = document.getElementById('screenshot-btn');
@@ -175,14 +169,25 @@ async function askGeminiNano(imageBlob, question) {
   return fullText.trim();
 }
 
-// ── Send text to server TTS → play audio ─────────────────────────────────────
+// ── Send text to Sarvam TTS → play audio ─────────────────────────────────────
 async function speakText(text) {
   if (!text) return;
 
-  const response = await fetch(`${SERVER}/speak`, {
+  const response = await fetch(`${config.SARVAM_BASE_URL}/text-to-speech`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    headers: {
+      'Content-Type': 'application/json',
+      'API-Subscription-Key': config.SARVAM_API_KEY
+    },
+    body: JSON.stringify({
+      inputs: [text],
+      target_language_code: 'en-IN',
+      speaker: config.SARVAM_TTS_SPEAKER || 'meera',
+      model: config.SARVAM_TTS_MODEL || 'bulbul:v3',
+      enable_preprocessing: true,
+      pace: 1.0,
+      temperature: 0.6
+    })
   });
 
   if (!response.ok) {
@@ -191,8 +196,23 @@ async function speakText(text) {
     throw new Error(msg);
   }
 
-  const blob    = await response.blob();
-  const blobUrl = URL.createObjectURL(blob);
+  const contentType = response.headers.get("content-type") || "";
+  let audioBlob;
+  if (contentType.includes("application/json")) {
+    const data = await response.json();
+    const base64Str = data.audio_base64;
+    const binary = atob(base64Str);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    audioBlob = new Blob([bytes], { type: "audio/wav" });
+  } else {
+    audioBlob = await response.blob();
+  }
+
+  const blobUrl = URL.createObjectURL(audioBlob);
 
   return new Promise((resolve, reject) => {
     const audio = new Audio(blobUrl);
@@ -202,14 +222,19 @@ async function speakText(text) {
   });
 }
 
-// ── Send audio to server for STT only → returns transcript ───────────────────
+// ── Send audio to Sarvam for STT only → returns transcript ───────────────────
 async function transcribeAudio(audioBlob, mimeType) {
   const formData = new FormData();
-  formData.append('audio', audioBlob, 'recording.webm');
+  formData.append('file', audioBlob, 'audio.webm');
+  formData.append('model', config.SARVAM_STT_MODEL || 'saaras:v3');
+  formData.append('language_code', 'en-IN');
 
-  const response = await fetch(`${SERVER}/transcribe`, {
+  const response = await fetch(`${config.SARVAM_BASE_URL}/speech-to-text`, {
     method: 'POST',
-    body: formData,
+    headers: {
+      'API-Subscription-Key': config.SARVAM_API_KEY
+    },
+    body: formData
   });
 
   if (!response.ok) {
